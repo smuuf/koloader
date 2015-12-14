@@ -193,7 +193,7 @@ class Autoloader {
 		$result = array();
 
 		$iterator = new \RecursiveIteratorIterator(
-			new \RecursiveDirectoryIterator('.', \FilesystemIterator::SKIP_DOTS)
+			new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
 		);
 
 		foreach($iterator as $node) {
