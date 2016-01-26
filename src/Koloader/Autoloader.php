@@ -20,6 +20,7 @@ class Autoloader {
 		T_TRAIT,
 	];
 
+	/** @var array Files of which extensions to scan through. **/
 	protected static $scanExtensions = [
 		".php",
 		".inc"
