@@ -4,10 +4,10 @@ namespace Smuuf\Koloader;
 
 class Autoloader {
 
-	/** @var ICache Cache provider **/
+	/** @var ICache Cache provider. **/
 	protected $cache;
 
-	/** @var array Directories to be scanned **/
+	/** @var array Directories to be scanned. **/
 	protected $scanDirs = array();
 
 	/** @var array Static array for storing list of already included files. **/
@@ -31,7 +31,7 @@ class Autoloader {
 	public function __construct($cache = null) {
 
 		// User must provide ither instance of ICache
-		// or a temporary directory for storing cached paths
+		// or a temporary directory for storing cached paths.
 		if ($cache instanceof ICache) {
 			$this->cache = $cache;
 		} else {
@@ -124,10 +124,10 @@ class Autoloader {
 
 	protected function recreateCache() {
 
-		// Scan source files
+		// Scan source files.
 		$this->cachedPaths = $this->scanDirectory($this->scanDirs);
 
-		// Save into cache
+		// Save into cache.
 		$this->cache->save($this->cacheKey, json_encode($this->cachedPaths));
 
 	}
@@ -139,19 +139,19 @@ class Autoloader {
 
 		foreach ($this->scanDirs as $dir) {
 
-			// Find all source files in the directory
+			// Find all source files in the directory.
 			$allPhpFiles = self::findAllFiles($dir, self::$scanExtensions);
 
 			foreach ($allPhpFiles as $phpFile) {
 
 				if (is_readable($phpFile)) {
 
-					// Get all autoloadable tokens within the file
+					// Get all autoloadable tokens within the file.
 					if ($tokens = self::findDeclarations($phpFile)) {
 
 						foreach ($tokens as $token) {
 
-							// Case-insensitive, same as PHP
+							// Case-insensitive, same as PHP.
 							$items[strtolower($token)] = $phpFile;
 
 						}
@@ -228,19 +228,17 @@ class Autoloader {
 	 */
 	private static function findDeclarations($filePath) {
 
+		// Defaults
 		$gathered = array();
-
-		// Analyzujeme zdrojový kód uvnitř souboru
-		$tokens = token_get_all(file_get_contents($filePath));
-
 		$gatheringNamespace = false;
 		$namespace = null;
 
-		// A každý token vyhodnotíme
+		// Get PHP tokens from the specified file.
+		$tokens = token_get_all(file_get_contents($filePath));
+
 		foreach ($tokens as $index => $token) {
 
 			// Namespace detection.
-
 			if ($gatheringNamespace) {
 				if (isset($token[1])) $namespace .= $token[1];
 				if ($token == ";") {
@@ -269,7 +267,7 @@ class Autoloader {
 
 	private static function hasExtension($filename, $extension) {
 
-		// If the extension is empty, always return true
+		// If the extension is empty, always return true.
 		if (!$extension) return true;
 
 		return substr($filename, strlen($extension) * -1) === $extension;
