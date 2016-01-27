@@ -17,7 +17,7 @@ require __DIR__ . "/path/to/Koloader/src/loader.php";
 ##### And then use it!
 
 ```
-$loader = new \Smuuf\Koloader\Autoloader(__DIR__ . "/temp/");
+$loader = new \Smuuf\Koloader\Autoloader(__DIR__ . "/temp/"); // The temp directory must exist beforehand.
 $loader->addDirectory(__DIR__ . "/app")
 	->register();
 
@@ -27,8 +27,11 @@ $instance = new SomeClass; // Autoloading will be handled by the Koloader.
 $instance->doClassStuff(); // Profit!
 ```
 
-In fact, you need to call only two methods on the *Koloader* instance:
-- **addDirectory**(*string* $pathToDirectory) - Add a directory to the list of directories that will be scanned for definitions of autoloadable tokens (those good ol' **class**, **interface**, **trait** keywords)
-- **register**() - Call this after all directories were added. This will register the Koloader and from that moment it will handle autoloading.
+The Koloader must be instantiated with a path to an existing temporary directory as an argument:
+- **Autoloader::__construct**(*string* $pathToTmpDir) - Specified directory will be used for storing cached maps of files that will be scanned for autoloadable tokens. **This directory will *not* be created automatically** and thus must exist beforehand.
+
+And then you need to call only two methods on the *Koloader* instance:
+- **Autoloader::addDirectory**(*string* $pathToDirectory) - Add a directory to the list of directories that will be scanned for definitions of autoloadable tokens (those good ol' **class**, **interface**, **trait** keywords)
+- **Autoloader::register**() - Call this after all directories were added. This will register the Koloader and from that moment it will handle autoloading.
 
 That is all. Have fun!
