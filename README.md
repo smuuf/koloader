@@ -2,7 +2,14 @@
 
 *Koloader* is a super-lightweight directory-sniffing autoloader with caching.
 
-### How to use it?
+### Installation
+
+You probably want to do either of these:
+
+1. [Direct download](https://github.com/smuuf/koloader/archive/master.zip) **or**
+2. With *Composer*: `composer require smuuf/koloader`
+
+### Usage
 
 Koloader is created with ease-of-use in mind. Really, you will need only four lines of code in your new project. The rest will be handled for you.
 
