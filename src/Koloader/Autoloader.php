@@ -29,6 +29,9 @@ class Autoloader {
 	/** @var array List of found paths for each of the autoloadable tokens. **/
 	protected $cachedPaths = [];
 
+	/** @var bool Did Autoloader already recreate cache during current runtime? */
+	protected $recreated = false;
+	
 	public function __construct($cache = null) {
 
 		// User must provide ither instance of ICache
@@ -96,7 +99,7 @@ class Autoloader {
 
 			return true;
 
-		} else {
+		} elseif (!$this->recreated) {
 
 			// The token was not found in any of the
 			// cached paths, so recreate the cache.
@@ -130,7 +133,8 @@ class Autoloader {
 
 		// Save into cache.
 		$this->cache->save($this->cacheKey, json_encode($this->cachedPaths));
-
+		$this->recreated = true;
+		
 	}
 
 
