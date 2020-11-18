@@ -1,51 +1,58 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Smuuf\Koloader;
 
-class SimpleCache implements ICache {
+class SimpleCache {
 
-	/** @var string Cache directory. **/	
+	/** @var string Cache directory. **/
 	private $directory;
 
 	/** @var string Cache namespace **/
 	private $namespace;
 
 	/**
-	 * @param string Directory for cache to be created in.
-	 * @param string Namespace for the created cache.
+	 * @param string $path Cache directory path.
+	 * @param string $namespace Cache namespace.
 	 */
-	public function __construct($directory, $namespace = null) {
+	public function __construct(string $path, ?string $namespace = null) {
 
-		$directory = rtrim($directory, '\\/');
-		$this->namespace = self::pathalize($namespace);
-
-		if (!is_writable($directory)) {
-			throw new \LogicException("Directory '$directory' not writable.");
+		$path = rtrim($path, '\\/');
+		if (!is_dir($path)) {
+			throw new KoloaderException("Passed cache path '$path' is not a directory");
 		}
 
-		if (!is_dir($directory)) {
-			throw new \LogicException("Passed path '$directory' is not a directory.");
+		if (!is_writable($path)) {
+			throw new KoloaderException("Cache directory '$path' not writable");
 		}
 
-		$this->directory = realpath($directory);
+		$this->directory = $path;
+		$this->namespace = self::pathalize((string) $namespace);
 
 	}
 
-	public function load($key) {
+	public function load(string $key) {
 		if (is_file($path = $this->getCachePath($key)) ){
-			return file_get_contents($path);
+			return json_decode(file_get_contents($path), true);
 		}
 	}
 
-	public function save($key, $value) {
-		return file_put_contents($this->getCachePath($key), $value);
+	public function save(string $key, $value) {
+		return file_put_contents(
+			$this->getCachePath($key),
+			json_encode($value)
+		);
 	}
 
-	protected function getCachePath($key) {
-		return $this->directory  . "/" . ($this->namespace ? $this->namespace . '_' : null) . md5($key);
+	private function getCachePath(string $key) {
+
+		$filename = ($this->namespace ?? '') . ' ' . md5($key);
+		return "{$this->directory}/{$filename}";
+
 	}
 
-	protected static function pathalize($string) {
+	private static function pathalize(string $string): string {
 		return preg_replace('#[^a-zA-Z0-9._-]#', '_', $string);
 	}
 

@@ -4,56 +4,59 @@ namespace Smuuf\Koloader;
 
 class Autoloader {
 
-	/** @var ICache Cache provider. **/
-	protected $cache;
-
-	/** @var array Directories to be scanned. **/
-	protected $scanDirs = array();
-
-	/** @var array Static array for storing list of already included files. **/
-	protected static $includedFiles = array();
-
-	/** @var array Autoloadable tokens. **/
-	protected static $autoloadableTokens = [
+	/**
+	 * @var array List of autoloadable tokens.
+	 */
+	public static $autoloadableTokens = [
 		T_CLASS,
 		T_INTERFACE,
 		T_TRAIT,
 	];
 
-	/** @var array Files of which extensions to scan through. **/
-	protected static $scanExtensions = [
+	/**
+	 * @var string[] Extensions of files to scan.
+	 */
+	public static $scanExtensions = [
 		".php",
-		".inc"
+		".inc",
 	];
 
-	/** @var array List of found paths for each of the autoloadable tokens. **/
-	protected $cachedPaths = [];
+	/** @var array List of already included files. */
+	private static $includedFiles = [];
+
+	/** @var ICache Cache provider. */
+	private $cache;
+
+	/** @var array Directories to be scanned. */
+	private $scanDirs = [];
+
+	/** @var array List of found paths for each of the autoloadable tokens. */
+	private $tokens = [];
+
+	/**
+	 * Dict of modification times for each scanned file
+	 * @var array<string, int>
+	 */
+	private $filemtimes = [];
 
 	/** @var bool Did Autoloader already recreate cache during current runtime? */
-	protected $recreated = false;
-	
-	public function __construct($cache = null) {
+	private $recreated = false;
 
-		// User must provide ither instance of ICache
-		// or a temporary directory for storing cached paths.
-		if ($cache instanceof ICache) {
-			$this->cache = $cache;
-		} else {
-			$this->cache = is_dir($cache) ? new SimpleCache($cache, __CLASS__) : null;
-		}
+	/** @var bool True if autoloader has been registered. */
+	private $registered = false;
 
-		if (!$this->cache) {
-			throw new KoloaderException("A path to temporary directory or an instance of ICache must be provided.");
-		}
-
+	public function __construct(string $cacheDir) {
+		$this->cache = new SimpleCache($cacheDir, __CLASS__);
 	}
 
-	// Public interface
+	public function addDirectory(string $dir) {
 
-	public function addDirectory($dir) {
+		if ($this->registered) {
+			throw new KoloaderException("Cannot add directory to already registered autoloader");
+		}
 
 		if (!is_dir($dir)) {
-			throw new KoloaderException("Directory '$dir' does not exist.");
+			throw new KoloaderException("Directory '$dir' does not exist");
 		}
 
 		$this->scanDirs[] = $dir;
@@ -61,52 +64,40 @@ class Autoloader {
 
 	}
 
-	public function register() {
+	public function register(): void {
 
 		if (!$this->scanDirs) {
-			throw new KoloaderException("There are no directories added.");
+			throw new KoloaderException("There are no directories to scan");
 		}
+
+		// Register this autoloader.
+		spl_autoload_register([$this, "handleAutoload"]);
+		$this->registered = true;
 
 		// Create unique cache key for each combination of scanned dirs.
 		$this->cacheKey = json_encode($this->scanDirs);
 
-		// Register this autoloader.
-		spl_autoload_register([$this, "handleAutoload"]);
+		[$tokens, $filemtimes] = $this->cache->load($this->cacheKey);
 
-		// Handle generating cache for the first time, if neccessary.
-		$this->handleCache();
+		$this->tokens = $tokens ?? [];
+		$this->filemtimes = $filemtimes ?? [];
 
 	}
 
 	// Internals
 
-	protected function handleCache() {
-
-		// Load cached paths, if possible.
-		if (!$this->cachedPaths = json_decode($this->cache->load($this->cacheKey), true)) {
-
-			// Recreate cache if there is none.
-			$this->recreateCache();
-
-		}
-
-	}
-
-	protected function handleAutoload($tokenName) {
+	private function handleAutoload(string $tokenName): bool {
 
 		// Try including cached path.
-		if ($this->tryCachedPath($tokenName)) {
-
+		if ($this->tryIncludeToken($tokenName)) {
 			return true;
-
 		} elseif (!$this->recreated) {
 
 			// The token was not found in any of the
 			// cached paths, so recreate the cache.
-			$this->recreateCache();
-
+			$this->rescan();
 			// Try it again.
-			return $this->tryCachedPath($tokenName);
+			return $this->handleAutoload($tokenName);
 
 		}
 
@@ -115,76 +106,85 @@ class Autoloader {
 
 	}
 
-	protected function tryCachedPath($tokenName) {
+	private function tryIncludeToken(string $tokenName): bool {
 
-		$tokenName = strtolower($tokenName);
-
-		if (isset($this->cachedPaths[$tokenName])) {
-			return self::tryInclude($this->cachedPaths[$tokenName]);
+		if (isset($this->tokens[$tokenName])) {
+			return self::tryIncludeFile($this->tokens[$tokenName]);
 		}
 
 		return false;
 	}
 
-	protected function recreateCache() {
+	private function rescan(): void {
 
 		// Scan source files.
-		$this->cachedPaths = $this->scanDirectory($this->scanDirs);
+		$t = microtime(true);
+		[$this->tokens, $this->filemtimes] = $this->scanDirectories();
 
 		// Save into cache.
-		$this->cache->save($this->cacheKey, json_encode($this->cachedPaths));
+		$this->cache->save($this->cacheKey, [$this->tokens, $this->filemtimes]);
 		$this->recreated = true;
-		
+
 	}
 
 
-	protected function scanDirectory($scanDir) {
+	private function scanDirectories(): array {
 
-		$items = array();
-
+		$tokens = [];
+		$mtimes = [];
 		foreach ($this->scanDirs as $dir) {
 
-			// Find all source files in the directory.
-			$allPhpFiles = self::findAllFiles($dir, self::$scanExtensions);
+			$files = self::findAllFiles($dir, self::$scanExtensions);
+			foreach ($files as $filepath) {
 
-			foreach ($allPhpFiles as $phpFile) {
+				$currentMtime = filemtime($filepath);
+				$mtimes[$filepath] = $currentMtime;
 
-				if (is_readable($phpFile)) {
+				// If the file modification time is newer, than it was when it
+				// was previously scanned, scan it again. Otherwise just use old
+				// data.
+				$prevMtime = $this->filemtimes[$filepath] ?? false;
+				if ($prevMtime !== false && $currentMtime >= $prevMtime) {
 
-					// Get all autoloadable tokens within the file.
-					if ($tokens = self::findDeclarations($phpFile)) {
-
-						foreach ($tokens as $token) {
-
-							// Case-insensitive, same as PHP.
-							$items[strtolower($token)] = $phpFile;
-
+					// Get all tokens this file contains and add them and their
+					// file path to the dict of tokens.
+					foreach ($this->tokens as $tok => $fp) {
+						if ($fp === $filepath) {
+							$tokens[$tok] = $fp;
 						}
-
 					}
 
+					continue;
+
+				}
+
+				// Get PHP tokens from the specified file.
+				$source = file_get_contents($filepath);
+
+				// Get all autoloadable tokens within the file.
+				if ($foundTokens = self::scanDeclarations($source)) {
+					foreach ($foundTokens as $token) {
+						$tokens[$token] = $filepath;
+					}
 				}
 
 			}
 
 		}
 
-		return $items;
+		return [$tokens, $mtimes];
 
 	}
 
-	protected static function tryInclude($path) {
+	private static function tryIncludeFile(string $path): bool {
 
 		$path = realpath($path);
 
-		// Include only if the file was not already included (check against our
-		// static $includedFiles property to save some include_once logic)
-		// and the file is readable.
-		if (!isset(self::$includedFiles[$path]) && $readable = is_readable($path)) {
+		// Include only if the file was not already included  and the file is readable.
+		if (!isset(self::$includedFiles[$path]) && is_readable($path)) {
 
 			include_once $path;
 			self::$includedFiles[$path] = true;
-
 			return true;
 
 		}
@@ -193,53 +193,37 @@ class Autoloader {
 
 	}
 
-	protected static function findAllFiles($dir, array $extensions) {
-
-		$result = array();
+	private static function findAllFiles(string $dir): \Generator {
 
 		$iterator = new \RecursiveIteratorIterator(
 			new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
 		);
 
-		foreach($iterator as $node) {
+		foreach ($iterator as $file) {
 
-			$nodePath = $node->getRealPath();
-
-			if (is_file($nodePath)) {
-
-				// Add only files with the right extension.
-				foreach ($extensions as $ext) {
-					if (self::hasExtension($nodePath, $ext)) {
-						$result[] = $nodePath;
-					}
-				}
-
-			} elseif (is_dir($nodePath)) {
-
-				// Go through the directory...
-				foreach (self::FindAllFiles($nodePath, $extensions) as $nodeName) {
-					$result[] = $nodeName;
-				}
-
+			$path = $file->getRealPath();
+			if (is_file($path) && self::hasValidExtension($path)) {
+				yield $path;
 			}
-		}
 
-		return $result;
+			if (is_dir($path)) {
+				yield from self::findAllFiles($path);
+			}
+
+		}
 
 	}
 
 	/**
 	 * Go through the file and return an array of autoloadable tokens present.
 	 */
-	private static function findDeclarations($filePath) {
+	private static function scanDeclarations(string $src): ?array {
 
 		// Defaults
-		$gathered = array();
+		$gathered = [];
 		$gatheringNamespace = false;
 		$namespace = null;
-
-		// Get PHP tokens from the specified file.
-		$tokens = token_get_all(file_get_contents($filePath));
+		$tokens = token_get_all($src);
 
 		foreach ($tokens as $index => $token) {
 
@@ -270,15 +254,18 @@ class Autoloader {
 
 	}
 
-	private static function hasExtension($filename, $extension) {
+	private static function hasValidExtension(string $filename) {
 
-		// If the extension is empty, always return true.
-		if (!$extension) return true;
+		foreach (self::$scanExtensions as $ext) {
+			if (substr($filename, strlen($ext) * -1) === $ext) {
+				return true;
+			}
+		}
 
-		return substr($filename, strlen($extension) * -1) === $extension;
+		return false;
 
 	}
 
 }
 
-class KoloaderException extends \LogicException {}
+class KoloaderException extends \RuntimeException {}
